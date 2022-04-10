@@ -1,55 +1,88 @@
-import loguru
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, TrainingArguments, Trainer
-from datasets import load_dataset
-from pathlib import Path
-import random
-from loguru import logger
+from datetime import datetime
+
 import numpy as np
-from datasets import load_metric
+from datasets import load_dataset
+from loguru import logger
+from sklearn.metrics import accuracy_score, f1_score
+from transformers import (AutoModelForSequenceClassification, AutoTokenizer,
+                          Trainer, TrainingArguments)
 
 # logger.info('Loading metric')
 # metric = load_metric("accuracy")
 
-def compute_metrics(eval_pred):
+
+def compute_metrics(eval_pred) -> dict:
     logits, labels = eval_pred
     predictions = np.argmax(logits, axis=-1)
-    return metric.compute(predictions=predictions, references=labels)
+    acc = accuracy_score(labels, predictions)
+    f1 = f1_score(labels, predictions, average="micro")
+    return {"accuracy": acc, "f1": f1}
 
 
 def train():
-    logger.info('Building dataset ...')
-    tokenizer = AutoTokenizer.from_pretrained("bert-base-cased", cache_dir='data/pretrained')
-    dataset = load_dataset('text', data_files={'train': 'data/train_20w.txt', 'test': 'data/val_2w.txt'})
+    base_model = "bert-base-uncased"
+    num_train_epochs = 5
+    pretrained_cache_dir = "pretrained_cache/"
+
+    logger.info("Building dataset ...")
+    tokenizer = AutoTokenizer.from_pretrained(
+        base_model, cache_dir=pretrained_cache_dir
+    )
+    dataset = load_dataset(
+        "text",
+        data_files={
+            "train": r"data/sequence_classification/train.tsv",
+            "test": r"data/sequence_classification/dev.tsv",
+        },
+    )
 
     def tokenize_function(examples):
+        sep = "\t"
         labels = []
         texts = []
-        for example in examples['text']:
-            split = example.split(' ', maxsplit=1)
+        for example in examples["text"]:
+            split = example.split(sep, maxsplit=1)
             labels.append(int(split[0]))
             texts.append(split[1])
-        tokenized = tokenizer(texts, padding='max_length', truncation=True, max_length=32)
-        tokenized['labels'] = labels
+        tokenized = tokenizer(
+            texts, padding="max_length", truncation=True, max_length=32
+        )
+        tokenized["labels"] = labels
         return tokenized
 
     tokenized_datasets = dataset.map(tokenize_function, batched=True)
     train_dataset = tokenized_datasets["train"].shuffle(seed=42)
     eval_dataset = tokenized_datasets["test"].shuffle(seed=42)
 
-    logger.info('Building model ...')
-    model = AutoModelForSequenceClassification.from_pretrained("bert-base-cased", num_labels=2, cache_dir='data/pretrained')
-    training_args = TrainingArguments('ckpts', per_device_train_batch_size=256, num_train_epochs=5)
+    logger.info("Building model ...")
+    model = AutoModelForSequenceClassification.from_pretrained(
+        base_model, num_labels=4, cache_dir=pretrained_cache_dir
+    )
+    save_dir_suffix = datetime.now().strftime("%Y%m%d%H%m%S")
+    training_args = TrainingArguments(
+        f"ckpts/{save_dir_suffix}",
+        per_device_train_batch_size=48,
+        num_train_epochs=num_train_epochs,
+        no_cuda=False,
+        evaluation_strategy="epoch",
+        save_strategy="epoch",
+        load_best_model_at_end=True,
+        save_total_limit=1,
+    )
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        # compute_metrics=compute_metrics
+        compute_metrics=compute_metrics,
     )
 
-    logger.info('Training ...')
+    logger.info("Training ...")
     trainer.train()
+    trainer.save_model(f"model/{save_dir_suffix}/")
+    result = trainer.evaluate()
+    print(result)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     train()
