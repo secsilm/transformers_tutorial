@@ -1,3 +1,4 @@
+"""序列分类训练程序。"""
 from datetime import datetime
 
 import numpy as np
@@ -6,9 +7,6 @@ from loguru import logger
 from sklearn.metrics import accuracy_score, f1_score
 from transformers import (AutoModelForSequenceClassification, AutoTokenizer,
                           Trainer, TrainingArguments)
-
-# logger.info('Loading metric')
-# metric = load_metric("accuracy")
 
 
 def compute_metrics(eval_pred) -> dict:

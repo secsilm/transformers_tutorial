@@ -1,3 +1,4 @@
+"""NER 训练程序。"""
 from datetime import datetime
 from pathlib import Path
 
